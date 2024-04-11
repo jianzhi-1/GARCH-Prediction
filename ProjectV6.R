@@ -264,7 +264,53 @@ for (i in 1:N.simul){
   
 }
 
-ggplot() + geom_density(aes(apparent.error.arr), color="blue") + geom_density(aes(apparent.error.bootstrap.arr), color="red") + xlab("Training Error")
-ggplot() + geom_density(aes(prediction.error.arr), color="blue") + geom_density(aes(prediction.error.bootstrap.arr), color="red") + xlab("Test Error")
+ggplot() + geom_density(aes(apparent.error.arr), color="blue") + geom_density(aes(apparent.error.bootstrap.arr), color="red") + xlab("Training Error") + labs(title = "Distribution of Training Error (Bootstrap in Red)")
+ggplot() + geom_density(aes(prediction.error.arr), color="blue") + geom_density(aes(prediction.error.bootstrap.arr), color="red") + xlab("Test Error") + labs(title = "Distribution of Test Error (Bootstrap in Red)")
 # Results show that the bootstrap procedure is pretty good
 
+### 6.3: Apply to actual data
+
+train.set.r.actual = head(df$logReturn, n.train)
+train.set.vol.actual = head(df$volatility, n.train)
+test.set.r.actual = tail(df$logReturn, n.test)
+test.set.vol.actual = tail(df$volatility, n.test)
+
+garch_model.actual <- garchFit(~arma(1, 0) + garch(1, 1), data = train.set.r.actual, include.mean = FALSE)
+summary(garch_model.actual)
+coef.actual = garch_model.actual@fit$matcoef[,1]
+
+# pred.temp = predict(garch_model.simul, n.ahead = n.test) # this doesn't work - this only predicts returns
+estimated.volatility.actual <- garch_model.actual@h.t
+pred.h.actual = integer(n.test)
+pred.sigma.actual = integer(n.test)
+for (ii in 1:n.test){
+  if (ii == 1){
+    # warning: square the vol
+    pred.h.actual[ii] = coef.actual["omega"] + train.set.r.actual[n.train]^2*coef.actual["alpha1"] + train.set.vol.actual[n.train]^2*coef.actual["beta1"]
+  } else {
+    # we observed test.r[ii - 1]
+    pred.h.actual[ii] = coef.actual["omega"] + test.set.r.actual[ii - 1]^2*coef.actual["alpha1"] + pred.h.actual[ii - 1]*coef.actual["beta1"]
+  }
+}
+
+pred.sigma.actual = sqrt(pred.h.actual)
+
+# ggplot() + geom_line(aes(x=1:length(pred.sigma.simul),y=pred.sigma.simul), color = "red")+ geom_line(aes(x=1:length(test.set.vol.temp),y=test.set.vol.temp))
+# ggplot() + geom_line(aes(x=1:length(train.set.vol.temp),y=train.set.vol.temp), color = "red")+ geom_line(aes(x=1:length(garch_model@sigma.t),y=garch_model@sigma.t))
+prediction.error.actual = sum(pred.sigma.actual - test.set.vol.actual)^2/n.test
+apparent.error.actual = sum(train.set.vol.actual - garch_model.actual@sigma.t)^2/n.train
+# prediction.error.actual = 9.855875e-06
+# apparent.error.actual = 0.0001105498
+
+combined_df_plot = data.frame(c1 = seq(1, length(pred.sigma.actual)), c2 = pred.sigma.actual, c3 = test.set.vol.actual)
+
+# Plotting both data sets together
+ggplot(combined_df_plot) +
+  geom_line(aes(x = c1, y = c2, color = "Predicted Sigma Actual")) +
+  geom_line(aes(x = c1, y = c3, color = "Test Set Vol Actual")) +
+  labs(title = "Predicted Sigma Actual vs Test Set Vol Actual",
+       x = "Index",
+       y = "Value") +
+  scale_color_manual(name = "Data", values = c("Predicted Sigma Actual" = "blue", "Test Set Vol Actual" = "red"))
+
+### 7: Task VII Apply Shrinkage
